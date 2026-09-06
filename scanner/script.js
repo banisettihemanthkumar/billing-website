@@ -26,7 +26,6 @@ const PRODUCTS = {
 let cart = [];
 let scanning = false;
 let stream = null;
-let qrScanner = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -78,40 +77,56 @@ function loadProducts() {
     });
 }
 
-// Scanner Functions
+// ====== IMPROVED SCANNER FUNCTIONS ======
 async function startScanning() {
     try {
+        // Request camera access with improved constraints
         const constraints = {
-            video: { facingMode: 'environment' }
+            video: { 
+                facingMode: 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
         };
 
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         const video = document.getElementById('video');
         video.srcObject = stream;
+        video.play();
 
         scanning = true;
         document.getElementById('startScanBtn').style.display = 'none';
         document.getElementById('stopScanBtn').style.display = 'inline-block';
-        showScanMessage('📷 Scanning... Point camera at QR code', 'info');
+        showScanMessage('📷 Camera active! Point at QR code', 'info');
 
         // Start QR code detection
         detectQRCodes();
     } catch (err) {
-        showScanMessage('❌ Camera access denied', 'error');
-        console.error('Error accessing camera:', err);
+        console.error('Camera Error:', err);
+        
+        // Provide specific error messages
+        if (err.name === 'NotAllowedError') {
+            showScanMessage('❌ Camera access denied. Please allow camera permissions.', 'error');
+        } else if (err.name === 'NotFoundError') {
+            showScanMessage('❌ No camera found. Use upload QR code instead.', 'error');
+        } else {
+            showScanMessage('❌ Camera error: ' + err.message, 'error');
+        }
     }
 }
 
 function stopScanning() {
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        stream = null;
     }
 
     scanning = false;
-    document.getElementById('video').srcObject = null;
+    const video = document.getElementById('video');
+    video.srcObject = null;
     document.getElementById('startScanBtn').style.display = 'inline-block';
     document.getElementById('stopScanBtn').style.display = 'none';
-    showScanMessage('');
+    showScanMessage('Scanner stopped', 'info');
 }
 
 async function detectQRCodes() {
@@ -121,60 +136,83 @@ async function detectQRCodes() {
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Set canvas size from video dimensions
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
 
-    if (canvas.width > 0 && canvas.height > 0) {
+        // Draw current video frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
         try {
-            // Use jsQR library for QR detection
+            // Get image data and scan for QR code
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(imageData.data, canvas.width, canvas.height);
+            
+            // Check if jsQR library is available
+            if (typeof jsQR !== 'undefined') {
+                const code = jsQR(imageData.data, canvas.width, canvas.height, {
+                    inversionAttempts: 'dontInvert'
+                });
 
-            if (code && code.data) {
-                processScannedCode(code.data);
-                stopScanning();
-                return;
+                if (code) {
+                    processScannedCode(code.data);
+                    return; // Stop loop after finding a code
+                }
+            } else {
+                console.warn('jsQR library not loaded');
             }
         } catch (err) {
-            // Continue scanning if QR not found
+            console.error('QR Detection Error:', err);
         }
     }
 
-    requestAnimationFrame(detectQRCodes);
+    // Continue scanning
+    if (scanning) {
+        requestAnimationFrame(detectQRCodes);
+    }
 }
 
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
 
+    showScanMessage('📤 Processing image...', 'info');
     const reader = new FileReader();
+
     reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
+            
             canvas.width = img.width;
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
             try {
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const code = jsQR(imageData.data, canvas.width, canvas.height);
-
-                if (code && code.data) {
-                    processScannedCode(code.data);
+                
+                if (typeof jsQR !== 'undefined') {
+                    const code = jsQR(imageData.data, canvas.width, canvas.height);
+                    
+                    if (code && code.data) {
+                        processScannedCode(code.data);
+                    } else {
+                        showScanMessage('❌ No QR code found in image', 'error');
+                    }
                 } else {
-                    showScanMessage('❌ No QR code found in image', 'error');
+                    showScanMessage('⚠️ QR Library not loaded. Try manual entry or demo codes.', 'error');
                 }
             } catch (err) {
+                console.error('Image processing error:', err);
                 showScanMessage('❌ Error processing image', 'error');
             }
         };
         img.src = e.target.result;
     };
+
     reader.readAsDataURL(file);
+    event.target.value = '';
 }
 
 function processScannedCode(data) {
@@ -184,6 +222,11 @@ function processScannedCode(data) {
     if (PRODUCTS[productId]) {
         addToCart(productId);
         showScanMessage(`✅ Added: ${PRODUCTS[productId].name}`, 'success');
+        
+        // Auto stop scanner after successful scan
+        setTimeout(() => {
+            if (scanning) stopScanning();
+        }, 1000);
     } else {
         showScanMessage(`⚠️ Unknown product code: ${productId}`, 'error');
     }
@@ -201,9 +244,16 @@ function showScanMessage(message, type = '') {
     const msgEl = document.getElementById('scanMessage');
     msgEl.textContent = message;
     msgEl.className = `scan-message ${type}`;
+    
+    if (type === 'success') {
+        setTimeout(() => {
+            msgEl.textContent = '';
+            msgEl.className = 'scan-message';
+        }, 3000);
+    }
 }
 
-// Cart Functions
+// ====== CART FUNCTIONS ======
 function addToCart(productId) {
     if (!PRODUCTS[productId]) return;
 
@@ -277,7 +327,7 @@ function updateCartSummary() {
     document.getElementById('total').textContent = `$${total.toFixed(2)}`;
 }
 
-// Checkout Functions
+// ====== CHECKOUT FUNCTIONS ======
 function openCheckout() {
     if (cart.length === 0) {
         showScanMessage('⚠️ Add items to cart first', 'error');
@@ -390,7 +440,7 @@ function closeDemoModal() {
     document.getElementById('demoModal').classList.remove('active');
 }
 
-// Storage Functions
+// ====== STORAGE FUNCTIONS ======
 function saveCartToStorage() {
     localStorage.setItem('clockShopCart', JSON.stringify(cart));
 }
@@ -404,4 +454,4 @@ function loadCartFromStorage() {
 }
 
 // Note: jsQR library needs to be included via CDN for QR detection
-// The script includes a reference to the jsQR library in the HTML
+// Make sure the following is included in HTML: <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
