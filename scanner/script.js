@@ -27,205 +27,194 @@ let cart = [];
 let scanning = false;
 let stream = null;
 
+// Safe DOM selector
+function safeGetElement(id) {
+    try {
+        return document.getElementById(id);
+    } catch (e) {
+        return null;
+    }
+}
+
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize);
+} else {
+    initialize();
+}
+
+function initialize() {
     try {
         loadProducts();
         setupEventListeners();
         loadCartFromStorage();
     } catch (error) {
-        console.error('Initialization error:', error);
+        console.error('Init error:', error);
     }
-});
+}
 
 // Setup Event Listeners
 function setupEventListeners() {
     try {
-        // Scanner Controls
-        const startBtn = document.getElementById('startScanBtn');
-        const stopBtn = document.getElementById('stopScanBtn');
-        const uploadBtn = document.getElementById('uploadQRBtn');
-        const fileInput = document.getElementById('qrFileInput');
+        const startBtn = safeGetElement('startScanBtn');
+        const stopBtn = safeGetElement('stopScanBtn');
+        const uploadBtn = safeGetElement('uploadQRBtn');
+        const fileInput = safeGetElement('qrFileInput');
+        const cartIcon = safeGetElement('cartIcon');
+        const closeCartBtn = safeGetElement('closeCartBtn');
+        const overlay = safeGetElement('overlay');
+        const continueShopping = safeGetElement('continueShopping');
+        const checkoutBtn = safeGetElement('checkoutBtn');
+        const checkoutForm = safeGetElement('checkoutForm');
 
-        if (startBtn) startBtn.addEventListener('click', startScanning);
-        if (stopBtn) stopBtn.addEventListener('click', stopScanning);
-        if (uploadBtn) uploadBtn.addEventListener('click', () => {
-            if (fileInput) fileInput.click();
-        });
-        if (fileInput) fileInput.addEventListener('change', handleFileUpload);
-
-        // Cart Controls
-        const cartIcon = document.getElementById('cartIcon');
-        const closeCartBtn = document.getElementById('closeCartBtn');
-        const overlay = document.getElementById('overlay');
-        const continueShopping = document.getElementById('continueShopping');
-        const checkoutBtn = document.getElementById('checkoutBtn');
-        const checkoutForm = document.getElementById('checkoutForm');
-
-        if (cartIcon) cartIcon.addEventListener('click', openCart);
-        if (closeCartBtn) closeCartBtn.addEventListener('click', closeCart);
-        if (overlay) overlay.addEventListener('click', closeCart);
-        if (continueShopping) continueShopping.addEventListener('click', closeCart);
-        if (checkoutBtn) checkoutBtn.addEventListener('click', openCheckout);
-        if (checkoutForm) checkoutForm.addEventListener('submit', processCheckout);
+        if (startBtn) startBtn.onclick = startScanning;
+        if (stopBtn) stopBtn.onclick = stopScanning;
+        if (uploadBtn) uploadBtn.onclick = () => { if (fileInput) fileInput.click(); };
+        if (fileInput) fileInput.onchange = handleFileUpload;
+        if (cartIcon) cartIcon.onclick = openCart;
+        if (closeCartBtn) closeCartBtn.onclick = closeCart;
+        if (overlay) overlay.onclick = closeCart;
+        if (continueShopping) continueShopping.onclick = closeCart;
+        if (checkoutBtn) checkoutBtn.onclick = openCheckout;
+        if (checkoutForm) checkoutForm.onsubmit = processCheckout;
     } catch (error) {
-        console.error('Event listener setup error:', error);
+        console.log('Setup error:', error);
     }
 }
 
-// Load and Display Products
+// Load Products
 function loadProducts() {
     try {
-        const grid = document.getElementById('productsGrid');
+        const grid = safeGetElement('productsGrid');
         if (!grid) return;
         
         grid.innerHTML = '';
 
-        Object.values(PRODUCTS).forEach(product => {
+        for (const key in PRODUCTS) {
+            const product = PRODUCTS[key];
             const card = document.createElement('div');
             card.className = 'product-card';
-            card.innerHTML = `
-                <div class="product-image">${product.emoji}</div>
-                <div class="product-name">${product.name}</div>
-                <div class="product-description">${product.description}</div>
-                <div class="product-price">$${product.price.toFixed(2)}</div>
-                <div class="product-sku">${product.id}</div>
-                <button class="btn btn-add" onclick="addToCart('${product.id}')">
-                    + Add to Cart
-                </button>
-            `;
+            card.innerHTML = '<div class="product-image">' + product.emoji + '</div>' +
+                '<div class="product-name">' + product.name + '</div>' +
+                '<div class="product-description">' + product.description + '</div>' +
+                '<div class="product-price">$' + product.price.toFixed(2) + '</div>' +
+                '<div class="product-sku">' + product.id + '</div>' +
+                '<button class="btn btn-add" type="button">+ Add to Cart</button>';
+            
+            const button = card.querySelector('.btn-add');
+            button.onclick = (function(pid) {
+                return function() { addToCart(pid); };
+            })(product.id);
+            
             grid.appendChild(card);
-        });
+        }
     } catch (error) {
-        console.error('Error loading products:', error);
+        console.log('Load products error:', error);
     }
 }
 
-// ====== SCANNER FUNCTIONS (NO ERRORS) ======
-async function startScanning() {
+// ====== SCANNER FUNCTIONS ======
+function startScanning() {
     try {
-        const video = document.getElementById('video');
-        if (!video) {
-            console.error('Video element not found');
-            return;
-        }
+        const video = safeGetElement('video');
+        if (!video) return;
 
-        // Request camera access
-        const constraints = {
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            },
+        navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
             audio: false
-        };
-
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-        
-        // Ensure video plays
-        const playPromise = video.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.log('Video play error (continuing anyway):', error);
+        }).then(function(mediaStream) {
+            stream = mediaStream;
+            video.srcObject = stream;
+            video.play().catch(function(e) {
+                console.log('Play error:', e);
             });
-        }
 
-        scanning = true;
-        const startBtn = document.getElementById('startScanBtn');
-        const stopBtn = document.getElementById('stopScanBtn');
-        
-        if (startBtn) startBtn.style.display = 'none';
-        if (stopBtn) stopBtn.style.display = 'inline-block';
-        
-        showScanMessage('📷 Camera active! Point at QR code', 'info');
-
-        // Start QR code detection
-        setTimeout(() => detectQRCodes(), 500);
-    } catch (err) {
-        console.error('Camera start error:', err);
-        showScanMessage('📱 Camera unavailable - Use Upload QR Code option instead', 'error');
+            scanning = true;
+            const startBtn = safeGetElement('startScanBtn');
+            const stopBtn = safeGetElement('stopScanBtn');
+            if (startBtn) startBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+            
+            showScanMessage('📷 Camera active! Point at QR code', 'info');
+            setTimeout(function() { detectQRCodes(); }, 500);
+        }).catch(function(err) {
+            console.log('Camera error:', err);
+            showScanMessage('📱 Camera unavailable - Use Upload QR Code', 'error');
+        });
+    } catch (error) {
+        console.log('Start scanning error:', error);
     }
 }
 
 function stopScanning() {
     try {
+        scanning = false;
         if (stream) {
-            stream.getTracks().forEach(track => {
-                try {
-                    track.stop();
-                } catch (e) {
-                    console.log('Track stop error:', e);
-                }
+            stream.getTracks().forEach(function(track) {
+                try { track.stop(); } catch (e) {}
             });
             stream = null;
         }
 
-        scanning = false;
-        const video = document.getElementById('video');
-        if (video) {
-            video.srcObject = null;
-        }
+        const video = safeGetElement('video');
+        if (video) video.srcObject = null;
         
-        const startBtn = document.getElementById('startScanBtn');
-        const stopBtn = document.getElementById('stopScanBtn');
+        const startBtn = safeGetElement('startScanBtn');
+        const stopBtn = safeGetElement('stopScanBtn');
         if (startBtn) startBtn.style.display = 'inline-block';
         if (stopBtn) stopBtn.style.display = 'none';
         
         showScanMessage('⏹️ Scanner stopped', 'info');
     } catch (error) {
-        console.log('Stop scanning error:', error);
+        console.log('Stop error:', error);
     }
 }
 
-async function detectQRCodes() {
+function detectQRCodes() {
     if (!scanning) return;
 
     try {
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
+        const video = safeGetElement('video');
+        const canvas = safeGetElement('canvas');
         
-        if (!video || !canvas) return;
+        if (!video || !canvas) {
+            if (scanning) setTimeout(function() { detectQRCodes(); }, 100);
+            return;
+        }
 
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) {
+            if (scanning) setTimeout(function() { detectQRCodes(); }, 100);
+            return;
+        }
 
-        // Set canvas size from video dimensions
         if (video.videoWidth > 0 && video.videoHeight > 0) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
             try {
-                // Draw current video frame to canvas
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                // Get image data and scan for QR code
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // Check if jsQR library is available
-                if (typeof jsQR !== 'undefined') {
-                    const code = jsQR(imageData.data, canvas.width, canvas.height, {
-                        inversionAttempts: 'dontInvert'
-                    });
-
+                if (typeof jsQR !== 'undefined' && jsQR) {
+                    const code = jsQR(imageData.data, canvas.width, canvas.height);
                     if (code && code.data) {
                         processScannedCode(code.data);
                         return;
                     }
                 }
             } catch (err) {
-                console.log('QR scan iteration error (continuing):', err);
+                console.log('Detection error:', err);
             }
         }
 
-        // Continue scanning
         if (scanning) {
             requestAnimationFrame(detectQRCodes);
         }
     } catch (error) {
-        console.log('Detect QR codes error:', error);
+        console.log('Detect error:', error);
         if (scanning) {
-            requestAnimationFrame(detectQRCodes);
+            setTimeout(function() { detectQRCodes(); }, 100);
         }
     }
 }
@@ -238,12 +227,12 @@ function handleFileUpload(event) {
         showScanMessage('📤 Processing image...', 'info');
         const reader = new FileReader();
 
-        reader.onload = (e) => {
+        reader.onload = function(e) {
             try {
                 const img = new Image();
-                img.onload = () => {
+                img.onload = function() {
                     try {
-                        const canvas = document.getElementById('canvas');
+                        const canvas = safeGetElement('canvas');
                         if (!canvas) return;
                         
                         const ctx = canvas.getContext('2d');
@@ -253,104 +242,92 @@ function handleFileUpload(event) {
                         canvas.height = img.height;
                         ctx.drawImage(img, 0, 0);
 
-                        try {
-                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                            
-                            if (typeof jsQR !== 'undefined') {
-                                const code = jsQR(imageData.data, canvas.width, canvas.height);
-                                
-                                if (code && code.data) {
-                                    processScannedCode(code.data);
-                                } else {
-                                    showScanMessage('❌ No QR code found in image - Try another file', 'error');
-                                }
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        
+                        if (typeof jsQR !== 'undefined' && jsQR) {
+                            const code = jsQR(imageData.data, canvas.width, canvas.height);
+                            if (code && code.data) {
+                                processScannedCode(code.data);
                             } else {
-                                showScanMessage('⚠️ QR Library loading - Try camera or upload again', 'error');
+                                showScanMessage('❌ No QR code found', 'error');
                             }
-                        } catch (err) {
-                            console.log('Image data error:', err);
-                            showScanMessage('⚠️ Error processing image - Try another file', 'error');
+                        } else {
+                            showScanMessage('⚠️ QR Library loading', 'error');
                         }
                     } catch (err) {
-                        console.log('Image load error:', err);
+                        console.log('Image processing error:', err);
+                        showScanMessage('❌ Error processing image', 'error');
                     }
                 };
-                img.onerror = () => {
-                    showScanMessage('❌ Failed to load image - Try another file', 'error');
+                img.onerror = function() {
+                    showScanMessage('❌ Failed to load image', 'error');
                 };
                 img.src = e.target.result;
             } catch (err) {
-                console.log('File reader error:', err);
-                showScanMessage('❌ Error reading file - Try again', 'error');
+                console.log('Reader error:', err);
+                showScanMessage('❌ Error reading file', 'error');
             }
         };
 
-        reader.onerror = () => {
-            showScanMessage('❌ Error reading file - Try again', 'error');
+        reader.onerror = function() {
+            showScanMessage('❌ Error reading file', 'error');
         };
 
-        try {
-            reader.readAsDataURL(file);
-        } catch (err) {
-            console.log('Read as data URL error:', err);
-        }
-        
+        reader.readAsDataURL(file);
         event.target.value = '';
     } catch (error) {
-        console.log('File upload error:', error);
-        showScanMessage('❌ Error with file upload - Try again', 'error');
+        console.log('Upload error:', error);
+        showScanMessage('❌ Error with upload', 'error');
     }
 }
 
 function processScannedCode(data) {
     try {
-        const productId = data.trim();
+        const productId = String(data).trim();
         
         if (PRODUCTS[productId]) {
             addToCart(productId);
-            showScanMessage(`✅ Added: ${PRODUCTS[productId].name}`, 'success');
+            showScanMessage('✅ Added: ' + PRODUCTS[productId].name, 'success');
             
-            // Auto stop scanner after successful scan
-            setTimeout(() => {
+            setTimeout(function() {
                 if (scanning) stopScanning();
             }, 1500);
         } else {
-            showScanMessage(`⚠️ Product not found - Try another code`, 'error');
+            showScanMessage('⚠️ Product not found', 'error');
         }
     } catch (error) {
-        console.log('Process scanned code error:', error);
-        showScanMessage('❌ Error processing code - Try again', 'error');
+        console.log('Process code error:', error);
+        showScanMessage('❌ Error processing code', 'error');
     }
 }
 
-// Demo scanning function
 function scanProduct(productId) {
     try {
         if (PRODUCTS[productId]) {
             addToCart(productId);
-            showScanMessage(`✅ Added: ${PRODUCTS[productId].name}`, 'success');
+            showScanMessage('✅ Added: ' + PRODUCTS[productId].name, 'success');
         }
     } catch (error) {
-        console.log('Demo scan error:', error);
+        console.log('Scan error:', error);
     }
 }
 
-function showScanMessage(message, type = '') {
+function showScanMessage(message, type) {
     try {
-        const msgEl = document.getElementById('scanMessage');
+        const msgEl = safeGetElement('scanMessage');
         if (!msgEl) return;
         
         msgEl.textContent = message;
-        msgEl.className = `scan-message ${type}`;
+        msgEl.className = 'scan-message ' + (type || '');
         
         if (type === 'success' || type === 'error') {
-            setTimeout(() => {
+            setTimeout(function() {
                 msgEl.textContent = '';
                 msgEl.className = 'scan-message';
             }, 4000);
         }
     } catch (error) {
-        console.log('Show message error:', error);
+        console.log('Message error:', error);
     }
 }
 
@@ -369,8 +346,8 @@ function addToCart(productId) {
         updateCartDisplay();
         openCart();
     } catch (error) {
-        console.log('Add to cart error:', error);
-        showScanMessage('❌ Error adding to cart - Try again', 'error');
+        console.log('Add cart error:', error);
+        showScanMessage('❌ Error adding to cart', 'error');
     }
 }
 
@@ -380,15 +357,15 @@ function removeFromCart(index) {
         saveCartToStorage();
         updateCartDisplay();
     } catch (error) {
-        console.log('Remove from cart error:', error);
+        console.log('Remove error:', error);
     }
 }
 
 function openCart() {
     try {
-        const cartSidebar = document.getElementById('cartSidebar');
-        const overlay = document.getElementById('overlay');
-        if (cartSidebar) cartSidebar.classList.add('active');
+        const sidebar = safeGetElement('cartSidebar');
+        const overlay = safeGetElement('overlay');
+        if (sidebar) sidebar.classList.add('active');
         if (overlay) overlay.classList.add('active');
     } catch (error) {
         console.log('Open cart error:', error);
@@ -397,9 +374,9 @@ function openCart() {
 
 function closeCart() {
     try {
-        const cartSidebar = document.getElementById('cartSidebar');
-        const overlay = document.getElementById('overlay');
-        if (cartSidebar) cartSidebar.classList.remove('active');
+        const sidebar = safeGetElement('cartSidebar');
+        const overlay = safeGetElement('overlay');
+        if (sidebar) sidebar.classList.remove('active');
         if (overlay) overlay.classList.remove('active');
     } catch (error) {
         console.log('Close cart error:', error);
@@ -408,62 +385,60 @@ function closeCart() {
 
 function updateCartDisplay() {
     try {
-        const cartItemsEl = document.getElementById('cartItems');
-        const cartCountEl = document.getElementById('cartCount');
+        const cartItems = safeGetElement('cartItems');
+        const cartCount = safeGetElement('cartCount');
 
-        if (!cartItemsEl || !cartCountEl) return;
+        if (!cartItems || !cartCount) return;
 
         if (cart.length === 0) {
-            cartItemsEl.innerHTML = `
-                <div class="empty-cart">
-                    <div class="empty-cart-icon">🛒</div>
-                    <p>Your cart is empty</p>
-                </div>
-            `;
-            cartCountEl.textContent = '0';
+            cartItems.innerHTML = '<div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>Your cart is empty</p></div>';
+            cartCount.textContent = '0';
             return;
         }
 
-        cartItemsEl.innerHTML = '';
-        cart.forEach((item, index) => {
-            try {
-                const itemEl = document.createElement('div');
-                itemEl.className = 'cart-item';
-                itemEl.innerHTML = `
-                    <div class="cart-item-info">
-                        <div class="cart-item-name">${item.product.name}</div>
-                        <div class="cart-item-price">$${item.product.price.toFixed(2)}</div>
-                    </div>
-                    <button class="cart-item-remove" onclick="removeFromCart(${index})">Remove</button>
-                `;
-                cartItemsEl.appendChild(itemEl);
-            } catch (err) {
-                console.log('Cart item error:', err);
-            }
-        });
+        cartItems.innerHTML = '';
+        for (let i = 0; i < cart.length; i++) {
+            const item = cart[i];
+            const itemEl = document.createElement('div');
+            itemEl.className = 'cart-item';
+            itemEl.innerHTML = '<div class="cart-item-info"><div class="cart-item-name">' + item.product.name + 
+                '</div><div class="cart-item-price">$' + item.product.price.toFixed(2) + 
+                '</div></div><button class="cart-item-remove" type="button">Remove</button>';
+            
+            const removeBtn = itemEl.querySelector('.cart-item-remove');
+            removeBtn.onclick = (function(idx) {
+                return function() { removeFromCart(idx); };
+            })(i);
+            
+            cartItems.appendChild(itemEl);
+        }
 
-        cartCountEl.textContent = cart.length;
+        cartCount.textContent = String(cart.length);
         updateCartSummary();
     } catch (error) {
-        console.log('Update cart display error:', error);
+        console.log('Update display error:', error);
     }
 }
 
 function updateCartSummary() {
     try {
-        const subtotal = cart.reduce((sum, item) => sum + item.product.price, 0);
+        let subtotal = 0;
+        for (let i = 0; i < cart.length; i++) {
+            subtotal += cart[i].product.price;
+        }
+        
         const tax = subtotal * 0.1;
         const total = subtotal + tax;
 
-        const subtotalEl = document.getElementById('subtotal');
-        const taxEl = document.getElementById('tax');
-        const totalEl = document.getElementById('total');
+        const subtotalEl = safeGetElement('subtotal');
+        const taxEl = safeGetElement('tax');
+        const totalEl = safeGetElement('total');
 
-        if (subtotalEl) subtotalEl.textContent = `$${subtotal.toFixed(2)}`;
-        if (taxEl) taxEl.textContent = `$${tax.toFixed(2)}`;
-        if (totalEl) totalEl.textContent = `$${total.toFixed(2)}`;
+        if (subtotalEl) subtotalEl.textContent = '$' + subtotal.toFixed(2);
+        if (taxEl) taxEl.textContent = '$' + tax.toFixed(2);
+        if (totalEl) totalEl.textContent = '$' + total.toFixed(2);
     } catch (error) {
-        console.log('Update cart summary error:', error);
+        console.log('Summary error:', error);
     }
 }
 
@@ -471,55 +446,45 @@ function updateCartSummary() {
 function openCheckout() {
     try {
         if (cart.length === 0) {
-            showScanMessage('⚠️ Please add items to cart first', 'error');
+            showScanMessage('⚠️ Add items to cart first', 'error');
             return;
         }
 
-        const subtotal = cart.reduce((sum, item) => sum + item.product.price, 0);
+        let subtotal = 0;
+        for (let i = 0; i < cart.length; i++) {
+            subtotal += cart[i].product.price;
+        }
         const tax = subtotal * 0.1;
         const total = subtotal + tax;
 
-        const summaryEl = document.getElementById('checkoutSummary');
-        if (summaryEl) {
-            summaryEl.innerHTML = `
-                <div class="order-details">
-                    ${cart.map(item => `
-                        <div class="order-details-row">
-                            <span>${item.product.name}</span>
-                            <span>$${item.product.price.toFixed(2)}</span>
-                        </div>
-                    `).join('')}
-                    <div class="order-details-row" style="border-top: 1px solid #bbb; padding-top: 10px;">
-                        <strong>Subtotal:</strong>
-                        <strong>$${subtotal.toFixed(2)}</strong>
-                    </div>
-                    <div class="order-details-row">
-                        <strong>Tax (10%):</strong>
-                        <strong>$${tax.toFixed(2)}</strong>
-                    </div>
-                    <div class="order-details-row" style="font-size: 1.2em; color: #667eea;">
-                        <strong>Total:</strong>
-                        <strong>$${total.toFixed(2)}</strong>
-                    </div>
-                </div>
-            `;
+        let summaryHTML = '<div class="order-details">';
+        for (let i = 0; i < cart.length; i++) {
+            summaryHTML += '<div class="order-details-row"><span>' + cart[i].product.name + 
+                '</span><span>$' + cart[i].product.price.toFixed(2) + '</span></div>';
         }
+        summaryHTML += '<div class="order-details-row" style="border-top: 1px solid #bbb; padding-top: 10px;">' +
+            '<strong>Subtotal:</strong><strong>$' + subtotal.toFixed(2) + '</strong></div>' +
+            '<div class="order-details-row"><strong>Tax (10%):</strong><strong>$' + tax.toFixed(2) + '</strong></div>' +
+            '<div class="order-details-row" style="font-size: 1.2em; color: #667eea;"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div></div>';
+
+        const summaryEl = safeGetElement('checkoutSummary');
+        if (summaryEl) summaryEl.innerHTML = summaryHTML;
 
         closeCart();
-        const checkoutModal = document.getElementById('checkoutModal');
-        if (checkoutModal) checkoutModal.classList.add('active');
+        const modal = safeGetElement('checkoutModal');
+        if (modal) modal.classList.add('active');
     } catch (error) {
         console.log('Open checkout error:', error);
-        showScanMessage('❌ Error opening checkout - Try again', 'error');
+        showScanMessage('❌ Error opening checkout', 'error');
     }
 }
 
 function closeCheckoutModal() {
     try {
-        const checkoutModal = document.getElementById('checkoutModal');
-        if (checkoutModal) checkoutModal.classList.remove('active');
+        const modal = safeGetElement('checkoutModal');
+        if (modal) modal.classList.remove('active');
     } catch (error) {
-        console.log('Close checkout modal error:', error);
+        console.log('Close checkout error:', error);
     }
 }
 
@@ -527,94 +492,68 @@ function processCheckout(e) {
     try {
         e.preventDefault();
 
-        // Validate form
-        const fullName = document.getElementById('fullName').value;
-        const email = document.getElementById('email').value;
-        const cardNumber = document.getElementById('cardNumber').value;
+        const fullName = safeGetElement('fullName');
+        const email = safeGetElement('email');
+        const cardNumber = safeGetElement('cardNumber');
 
-        if (!fullName || !email || !cardNumber) {
-            alert('❌ Please fill in all required fields');
+        if (!fullName || !fullName.value || !email || !email.value || !cardNumber || !cardNumber.value) {
+            alert('❌ Please fill all fields');
             return;
         }
 
-        // Generate order number
         const orderNumber = 'ORD-' + Math.random().toString(36).substr(2, 8).toUpperCase();
         
-        // Calculate totals
-        const subtotal = cart.reduce((sum, item) => sum + item.product.price, 0);
+        let subtotal = 0;
+        for (let i = 0; i < cart.length; i++) {
+            subtotal += cart[i].product.price;
+        }
         const tax = subtotal * 0.1;
         const total = subtotal + tax;
 
-        // Show success modal
-        const successMsg = document.getElementById('successMessage');
+        const successMsg = safeGetElement('successMessage');
         if (successMsg) {
-            successMsg.textContent = `✅ Your order #${orderNumber} has been placed successfully! You will receive a confirmation email at ${email}.`;
+            successMsg.textContent = '✅ Order #' + orderNumber + ' placed! Email: ' + email.value;
         }
 
-        const orderDetailsEl = document.getElementById('orderDetails');
-        if (orderDetailsEl) {
-            orderDetailsEl.innerHTML = `
-                <div class="order-details">
-                    <div class="order-details-row">
-                        <strong>Order Number:</strong>
-                        <strong>${orderNumber}</strong>
-                    </div>
-                    <div class="order-details-row">
-                        <strong>Items Ordered:</strong>
-                        <span>${cart.length} item(s)</span>
-                    </div>
-                    <div class="order-details-row">
-                        <strong>Total Amount:</strong>
-                        <strong>$${total.toFixed(2)}</strong>
-                    </div>
-                    <div class="order-details-row">
-                        <strong>Shipped To:</strong>
-                        <span>${fullName}</span>
-                    </div>
-                    <div class="order-details-row">
-                        <strong>Estimated Delivery:</strong>
-                        <span>3-5 Business Days</span>
-                    </div>
-                </div>
-            `;
-        }
+        let orderHTML = '<div class="order-details">' +
+            '<div class="order-details-row"><strong>Order:</strong><strong>' + orderNumber + '</strong></div>' +
+            '<div class="order-details-row"><strong>Items:</strong><span>' + cart.length + '</span></div>' +
+            '<div class="order-details-row"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div>' +
+            '<div class="order-details-row"><strong>Ship To:</strong><span>' + fullName.value + '</span></div>' +
+            '<div class="order-details-row"><strong>Delivery:</strong><span>3-5 Days</span></div></div>';
+
+        const orderDetails = safeGetElement('orderDetails');
+        if (orderDetails) orderDetails.innerHTML = orderHTML;
 
         closeCheckoutModal();
-        const successModal = document.getElementById('successModal');
+        const successModal = safeGetElement('successModal');
         if (successModal) successModal.classList.add('active');
 
-        // Reset form and cart
-        try {
-            document.getElementById('checkoutForm').reset();
-        } catch (err) {
-            console.log('Form reset error:', err);
-        }
-        
         cart = [];
         saveCartToStorage();
         updateCartDisplay();
     } catch (error) {
-        console.log('Process checkout error:', error);
-        alert('❌ Error processing checkout - Please try again');
+        console.log('Checkout error:', error);
+        alert('❌ Error processing order');
     }
 }
 
 function closeSuccessModal() {
     try {
-        const successModal = document.getElementById('successModal');
-        if (successModal) successModal.classList.remove('active');
+        const modal = safeGetElement('successModal');
+        if (modal) modal.classList.remove('active');
         loadProducts();
     } catch (error) {
-        console.log('Close success modal error:', error);
+        console.log('Close success error:', error);
     }
 }
 
-// ====== STORAGE FUNCTIONS ======
+// ====== STORAGE ======
 function saveCartToStorage() {
     try {
         localStorage.setItem('clockShopCart', JSON.stringify(cart));
     } catch (error) {
-        console.log('Save cart error:', error);
+        console.log('Save error:', error);
     }
 }
 
@@ -626,7 +565,7 @@ function loadCartFromStorage() {
             updateCartDisplay();
         }
     } catch (error) {
-        console.log('Load cart error (using empty cart):', error);
+        console.log('Load error:', error);
         cart = [];
     }
 }
