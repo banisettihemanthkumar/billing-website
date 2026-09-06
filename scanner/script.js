@@ -392,22 +392,21 @@ function openCheckout() {
     var tax = sub * 0.1;
     var total = sub + tax;
 
-    var html = '<div class="order-details">';
+    var html = '<table class="summary-table"><tbody>';
     for (var i = 0; i < cart.length; i++) {
-        html += '<div class="order-details-row">';
-        html += '<span>' + cart[i].product.name + '</span>';
-        html += '<span>$' + cart[i].product.price.toFixed(2) + '</span>';
-        html += '</div>';
+        html += '<tr><td>' + cart[i].product.name + '</td><td>$' + cart[i].product.price.toFixed(2) + '</td></tr>';
     }
-    html += '<div class="order-details-row" style="border-top: 1px solid #bbb; padding-top: 10px;">';
-    html += '<strong>Subtotal:</strong><strong>$' + sub.toFixed(2) + '</strong></div>';
-    html += '<div class="order-details-row">';
-    html += '<strong>Tax (10%):</strong><strong>$' + tax.toFixed(2) + '</strong></div>';
-    html += '<div class="order-details-row" style="font-size: 1.2em; color: #667eea;">';
-    html += '<strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div></div>';
+    html += '<tr class="summary-total"><td><strong>Subtotal:</strong></td><td><strong>$' + sub.toFixed(2) + '</strong></td></tr>';
+    html += '<tr><td><strong>Tax (10%):</strong></td><td><strong>$' + tax.toFixed(2) + '</strong></td></tr>';
+    html += '<tr class="summary-grand-total"><td><strong>Total:</strong></td><td><strong>$' + total.toFixed(2) + '</strong></td></tr>';
+    html += '</tbody></table>';
 
     var summaryEl = getEl('checkoutSummary');
     if (summaryEl) summaryEl.innerHTML = html;
+
+    // Clear form
+    var form = getEl('checkoutForm');
+    if (form) form.reset();
 
     closeCart();
     var modal = getEl('checkoutModal');
@@ -424,17 +423,43 @@ function closeCheckoutModal() {
 function processCheckout(e) {
     e.preventDefault();
 
-    var nameEl = getEl('fullName');
+    var fullNameEl = getEl('fullName');
     var emailEl = getEl('email');
+    var addressEl = getEl('address');
     var cardEl = getEl('cardNumber');
+    var expiryEl = getEl('expiry');
+    var cvvEl = getEl('cvv');
 
-    if (!nameEl || !nameEl.value || !emailEl || !emailEl.value || !cardEl || !cardEl.value) {
-        alert('Fill all fields');
+    // Basic validation
+    if (!fullNameEl || !fullNameEl.value.trim()) {
+        alert('❌ Please enter your full name');
+        return;
+    }
+    if (!emailEl || !emailEl.value.trim()) {
+        alert('❌ Please enter your email');
+        return;
+    }
+    if (!addressEl || !addressEl.value.trim()) {
+        alert('❌ Please enter your shipping address');
+        return;
+    }
+    if (!cardEl || !cardEl.value.trim() || cardEl.value.replace(/\s/g, '').length < 13) {
+        alert('❌ Please enter a valid card number');
+        return;
+    }
+    if (!expiryEl || !expiryEl.value.match(/^\d{2}\/\d{2}$/)) {
+        alert('❌ Please enter expiry in MM/YY format');
+        return;
+    }
+    if (!cvvEl || !cvvEl.value.match(/^\d{3}$/)) {
+        alert('❌ Please enter a valid 3-digit CVV');
         return;
     }
 
+    // Generate order number
     var orderNum = 'ORD-' + Math.random().toString(36).substr(2, 8).toUpperCase();
     
+    // Calculate totals
     var sub = 0;
     for (var i = 0; i < cart.length; i++) {
         sub += cart[i].product.price;
@@ -442,40 +467,49 @@ function processCheckout(e) {
     var tax = sub * 0.1;
     var total = sub + tax;
 
+    // Build success message
     var msgEl = getEl('successMessage');
     if (msgEl) {
-        msgEl.textContent = '✅ Order #' + orderNum + ' confirmed! Email sent to ' + emailEl.value;
+        msgEl.innerHTML = '<p>✅ Order <strong>#' + orderNum + '</strong> confirmed!</p>' +
+                         '<p>Confirmation email sent to <strong>' + emailEl.value + '</strong></p>' +
+                         '<p>Estimated delivery: <strong>3-5 Business Days</strong></p>';
     }
 
+    // Build order details
     var detailsEl = getEl('orderDetails');
     if (detailsEl) {
-        var html = '<div class="order-details">';
-        html += '<div class="order-details-row"><strong>Order:</strong><strong>' + orderNum + '</strong></div>';
-        html += '<div class="order-details-row"><strong>Items:</strong><span>' + cart.length + '</span></div>';
-        html += '<div class="order-details-row"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div>';
-        html += '<div class="order-details-row"><strong>Ship To:</strong><span>' + nameEl.value + '</span></div>';
-        html += '<div class="order-details-row"><strong>Delivery:</strong><span>3-5 Business Days</span></div>';
+        var html = '<div class="order-details-grid">';
+        html += '<div class="detail-item"><span class="detail-label">Order #:</span><span class="detail-value">' + orderNum + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Items:</span><span class="detail-value">' + cart.length + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Subtotal:</span><span class="detail-value">$' + sub.toFixed(2) + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Tax:</span><span class="detail-value">$' + tax.toFixed(2) + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Total:</span><span class="detail-value total">$' + total.toFixed(2) + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Ship To:</span><span class="detail-value">' + fullNameEl.value + '</span></div>';
         html += '</div>';
         detailsEl.innerHTML = html;
     }
 
+    // Close checkout and show success
     closeCheckoutModal();
     var successModal = getEl('successModal');
     if (successModal) successModal.classList.add('active');
 
+    // Clear cart
     cart = [];
     saveCart();
-    updateCart();
 }
 
 // Close success modal
 function closeSuccessModal() {
     var modal = getEl('successModal');
     if (modal) modal.classList.remove('active');
+    
+    // Reset cart display
+    updateCart();
     loadProducts();
 }
 
-// Save cart
+// Save cart to localStorage
 function saveCart() {
     try {
         localStorage.setItem('clockShopCart', JSON.stringify(cart));
@@ -484,7 +518,7 @@ function saveCart() {
     }
 }
 
-// Load cart
+// Load cart from localStorage
 function loadCart() {
     try {
         var saved = localStorage.getItem('clockShopCart');
