@@ -1,5 +1,5 @@
 // Product Database
-const PRODUCTS = {
+var PRODUCTS = {
     'CLOCK_BASIC_001': {
         id: 'CLOCK_BASIC_001',
         name: 'Basic Digital Clock',
@@ -23,549 +23,477 @@ const PRODUCTS = {
     }
 };
 
-let cart = [];
-let scanning = false;
-let stream = null;
+var cart = [];
+var scanning = false;
+var stream = null;
 
-// Safe DOM selector
-function safeGetElement(id) {
-    try {
-        return document.getElementById(id);
-    } catch (e) {
-        return null;
-    }
+// Safe DOM getter
+function getEl(id) {
+    return document.getElementById(id) || null;
 }
 
-// Initialize
+// Wait for DOM ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialize);
+    document.addEventListener('DOMContentLoaded', init);
 } else {
-    initialize();
+    setTimeout(init, 0);
 }
 
-function initialize() {
-    try {
-        loadProducts();
-        setupEventListeners();
-        loadCartFromStorage();
-    } catch (error) {
-        console.error('Init error:', error);
-    }
+function init() {
+    loadProducts();
+    attachEvents();
+    loadCart();
 }
 
-// Setup Event Listeners
-function setupEventListeners() {
-    try {
-        const startBtn = safeGetElement('startScanBtn');
-        const stopBtn = safeGetElement('stopScanBtn');
-        const uploadBtn = safeGetElement('uploadQRBtn');
-        const fileInput = safeGetElement('qrFileInput');
-        const cartIcon = safeGetElement('cartIcon');
-        const closeCartBtn = safeGetElement('closeCartBtn');
-        const overlay = safeGetElement('overlay');
-        const continueShopping = safeGetElement('continueShopping');
-        const checkoutBtn = safeGetElement('checkoutBtn');
-        const checkoutForm = safeGetElement('checkoutForm');
+// Attach all event listeners
+function attachEvents() {
+    var startBtn = getEl('startScanBtn');
+    var stopBtn = getEl('stopScanBtn');
+    var uploadBtn = getEl('uploadQRBtn');
+    var fileInput = getEl('qrFileInput');
+    var cartIcon = getEl('cartIcon');
+    var closeBtn = getEl('closeCartBtn');
+    var overlay = getEl('overlay');
+    var shop = getEl('continueShopping');
+    var checkBtn = getEl('checkoutBtn');
+    var form = getEl('checkoutForm');
 
-        if (startBtn) startBtn.onclick = startScanning;
-        if (stopBtn) stopBtn.onclick = stopScanning;
-        if (uploadBtn) uploadBtn.onclick = () => { if (fileInput) fileInput.click(); };
-        if (fileInput) fileInput.onchange = handleFileUpload;
-        if (cartIcon) cartIcon.onclick = openCart;
-        if (closeCartBtn) closeCartBtn.onclick = closeCart;
-        if (overlay) overlay.onclick = closeCart;
-        if (continueShopping) continueShopping.onclick = closeCart;
-        if (checkoutBtn) checkoutBtn.onclick = openCheckout;
-        if (checkoutForm) checkoutForm.onsubmit = processCheckout;
-    } catch (error) {
-        console.log('Setup error:', error);
-    }
+    if (startBtn) startBtn.onclick = startScanning;
+    if (stopBtn) stopBtn.onclick = stopScanning;
+    if (uploadBtn) uploadBtn.onclick = function() { if (fileInput) fileInput.click(); };
+    if (fileInput) fileInput.onchange = handleFileUpload;
+    if (cartIcon) cartIcon.onclick = openCart;
+    if (closeBtn) closeBtn.onclick = closeCart;
+    if (overlay) overlay.onclick = closeCart;
+    if (shop) shop.onclick = closeCart;
+    if (checkBtn) checkBtn.onclick = openCheckout;
+    if (form) form.onsubmit = processCheckout;
 }
 
-// Load Products
+// Load products
 function loadProducts() {
-    try {
-        const grid = safeGetElement('productsGrid');
-        if (!grid) return;
-        
-        grid.innerHTML = '';
+    var grid = getEl('productsGrid');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
 
-        for (const key in PRODUCTS) {
-            const product = PRODUCTS[key];
-            const card = document.createElement('div');
-            card.className = 'product-card';
-            card.innerHTML = '<div class="product-image">' + product.emoji + '</div>' +
-                '<div class="product-name">' + product.name + '</div>' +
-                '<div class="product-description">' + product.description + '</div>' +
-                '<div class="product-price">$' + product.price.toFixed(2) + '</div>' +
-                '<div class="product-sku">' + product.id + '</div>' +
-                '<button class="btn btn-add" type="button">+ Add to Cart</button>';
-            
-            const button = card.querySelector('.btn-add');
-            button.onclick = (function(pid) {
-                return function() { addToCart(pid); };
-            })(product.id);
-            
-            grid.appendChild(card);
-        }
-    } catch (error) {
-        console.log('Load products error:', error);
+    for (var key in PRODUCTS) {
+        var p = PRODUCTS[key];
+        var card = document.createElement('div');
+        card.className = 'product-card';
+        
+        var html = '<div class="product-image">' + p.emoji + '</div>';
+        html += '<div class="product-name">' + p.name + '</div>';
+        html += '<div class="product-description">' + p.description + '</div>';
+        html += '<div class="product-price">$' + p.price.toFixed(2) + '</div>';
+        html += '<div class="product-sku">' + p.id + '</div>';
+        html += '<button class="btn btn-add" type="button">+ Add to Cart</button>';
+        
+        card.innerHTML = html;
+        
+        var btn = card.querySelector('.btn-add');
+        btn.productId = p.id;
+        btn.onclick = function() { addToCart(this.productId); };
+        
+        grid.appendChild(card);
     }
 }
 
-// ====== SCANNER FUNCTIONS ======
+// Start scanner
 function startScanning() {
-    try {
-        const video = safeGetElement('video');
-        if (!video) return;
+    var video = getEl('video');
+    if (!video) return;
 
-        navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' },
-            audio: false
-        }).then(function(mediaStream) {
-            stream = mediaStream;
+    var constraints = {
+        video: { facingMode: 'environment' },
+        audio: false
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints)
+        .then(function(stream_obj) {
+            stream = stream_obj;
             video.srcObject = stream;
-            video.play().catch(function(e) {
-                console.log('Play error:', e);
-            });
-
+            
             scanning = true;
-            const startBtn = safeGetElement('startScanBtn');
-            const stopBtn = safeGetElement('stopScanBtn');
+            var startBtn = getEl('startScanBtn');
+            var stopBtn = getEl('stopScanBtn');
             if (startBtn) startBtn.style.display = 'none';
             if (stopBtn) stopBtn.style.display = 'inline-block';
             
-            showScanMessage('📷 Camera active! Point at QR code', 'info');
-            setTimeout(function() { detectQRCodes(); }, 500);
-        }).catch(function(err) {
-            console.log('Camera error:', err);
-            showScanMessage('📱 Camera unavailable - Use Upload QR Code', 'error');
+            showMsg('📷 Camera ready! Scan QR code', 'info');
+            detectQR();
+        })
+        .catch(function(err) {
+            showMsg('📱 Camera error - Use Upload QR', 'error');
+            console.log(err);
         });
-    } catch (error) {
-        console.log('Start scanning error:', error);
-    }
 }
 
+// Stop scanner
 function stopScanning() {
-    try {
-        scanning = false;
-        if (stream) {
-            stream.getTracks().forEach(function(track) {
-                try { track.stop(); } catch (e) {}
-            });
-            stream = null;
+    scanning = false;
+    
+    if (stream) {
+        var tracks = stream.getTracks();
+        for (var i = 0; i < tracks.length; i++) {
+            tracks[i].stop();
         }
-
-        const video = safeGetElement('video');
-        if (video) video.srcObject = null;
-        
-        const startBtn = safeGetElement('startScanBtn');
-        const stopBtn = safeGetElement('stopScanBtn');
-        if (startBtn) startBtn.style.display = 'inline-block';
-        if (stopBtn) stopBtn.style.display = 'none';
-        
-        showScanMessage('⏹️ Scanner stopped', 'info');
-    } catch (error) {
-        console.log('Stop error:', error);
+        stream = null;
     }
+
+    var video = getEl('video');
+    if (video) video.srcObject = null;
+    
+    var startBtn = getEl('startScanBtn');
+    var stopBtn = getEl('stopScanBtn');
+    if (startBtn) startBtn.style.display = 'inline-block';
+    if (stopBtn) stopBtn.style.display = 'none';
+    
+    showMsg('⏹️ Scanner stopped', 'info');
 }
 
-function detectQRCodes() {
+// Detect QR
+function detectQR() {
     if (!scanning) return;
 
+    var video = getEl('video');
+    var canvas = getEl('canvas');
+    
+    if (!video || !canvas) {
+        if (scanning) setTimeout(detectQR, 100);
+        return;
+    }
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) {
+        if (scanning) setTimeout(detectQR, 100);
+        return;
+    }
+
     try {
-        const video = safeGetElement('video');
-        const canvas = safeGetElement('canvas');
-        
-        if (!video || !canvas) {
-            if (scanning) setTimeout(function() { detectQRCodes(); }, 100);
-            return;
-        }
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            if (scanning) setTimeout(function() { detectQRCodes(); }, 100);
-            return;
-        }
-
         if (video.videoWidth > 0 && video.videoHeight > 0) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            if (window.jsQR) {
+                var code = window.jsQR(imageData.data, canvas.width, canvas.height);
+                if (code && code.data) {
+                    processCode(code.data);
+                    return;
+                }
+            }
+        }
+    } catch (e) {
+        console.log('Scan error:', e);
+    }
+
+    if (scanning) {
+        requestAnimationFrame(detectQR);
+    }
+}
+
+// Handle file upload
+function handleFileUpload(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+
+    showMsg('📤 Processing...', 'info');
+    var reader = new FileReader();
+
+    reader.onload = function(event) {
+        var img = new Image();
+        
+        img.onload = function() {
+            var canvas = getEl('canvas');
+            if (!canvas) return;
+            
+            var ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
 
             try {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
-                if (typeof jsQR !== 'undefined' && jsQR) {
-                    const code = jsQR(imageData.data, canvas.width, canvas.height);
+                if (window.jsQR) {
+                    var code = window.jsQR(imageData.data, canvas.width, canvas.height);
                     if (code && code.data) {
-                        processScannedCode(code.data);
-                        return;
+                        processCode(code.data);
+                    } else {
+                        showMsg('❌ No QR found', 'error');
                     }
+                } else {
+                    showMsg('⚠️ QR library loading', 'error');
                 }
             } catch (err) {
-                console.log('Detection error:', err);
-            }
-        }
-
-        if (scanning) {
-            requestAnimationFrame(detectQRCodes);
-        }
-    } catch (error) {
-        console.log('Detect error:', error);
-        if (scanning) {
-            setTimeout(function() { detectQRCodes(); }, 100);
-        }
-    }
-}
-
-function handleFileUpload(event) {
-    try {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        showScanMessage('📤 Processing image...', 'info');
-        const reader = new FileReader();
-
-        reader.onload = function(e) {
-            try {
-                const img = new Image();
-                img.onload = function() {
-                    try {
-                        const canvas = safeGetElement('canvas');
-                        if (!canvas) return;
-                        
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) return;
-                        
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        ctx.drawImage(img, 0, 0);
-
-                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        
-                        if (typeof jsQR !== 'undefined' && jsQR) {
-                            const code = jsQR(imageData.data, canvas.width, canvas.height);
-                            if (code && code.data) {
-                                processScannedCode(code.data);
-                            } else {
-                                showScanMessage('❌ No QR code found', 'error');
-                            }
-                        } else {
-                            showScanMessage('⚠️ QR Library loading', 'error');
-                        }
-                    } catch (err) {
-                        console.log('Image processing error:', err);
-                        showScanMessage('❌ Error processing image', 'error');
-                    }
-                };
-                img.onerror = function() {
-                    showScanMessage('❌ Failed to load image', 'error');
-                };
-                img.src = e.target.result;
-            } catch (err) {
-                console.log('Reader error:', err);
-                showScanMessage('❌ Error reading file', 'error');
+                showMsg('❌ Error reading image', 'error');
+                console.log(err);
             }
         };
-
-        reader.onerror = function() {
-            showScanMessage('❌ Error reading file', 'error');
+        
+        img.onerror = function() {
+            showMsg('❌ Image error', 'error');
         };
-
-        reader.readAsDataURL(file);
-        event.target.value = '';
-    } catch (error) {
-        console.log('Upload error:', error);
-        showScanMessage('❌ Error with upload', 'error');
-    }
-}
-
-function processScannedCode(data) {
-    try {
-        const productId = String(data).trim();
         
-        if (PRODUCTS[productId]) {
-            addToCart(productId);
-            showScanMessage('✅ Added: ' + PRODUCTS[productId].name, 'success');
-            
-            setTimeout(function() {
-                if (scanning) stopScanning();
-            }, 1500);
-        } else {
-            showScanMessage('⚠️ Product not found', 'error');
-        }
-    } catch (error) {
-        console.log('Process code error:', error);
-        showScanMessage('❌ Error processing code', 'error');
-    }
+        img.src = event.target.result;
+    };
+
+    reader.onerror = function() {
+        showMsg('❌ File error', 'error');
+    };
+
+    reader.readAsDataURL(file);
+    e.target.value = '';
 }
 
-function scanProduct(productId) {
-    try {
-        if (PRODUCTS[productId]) {
-            addToCart(productId);
-            showScanMessage('✅ Added: ' + PRODUCTS[productId].name, 'success');
-        }
-    } catch (error) {
-        console.log('Scan error:', error);
-    }
-}
-
-function showScanMessage(message, type) {
-    try {
-        const msgEl = safeGetElement('scanMessage');
-        if (!msgEl) return;
+// Process scanned code
+function processCode(data) {
+    var pid = String(data).trim();
+    
+    if (PRODUCTS[pid]) {
+        addToCart(pid);
+        showMsg('✅ Added: ' + PRODUCTS[pid].name, 'success');
         
-        msgEl.textContent = message;
-        msgEl.className = 'scan-message ' + (type || '');
-        
-        if (type === 'success' || type === 'error') {
-            setTimeout(function() {
-                msgEl.textContent = '';
-                msgEl.className = 'scan-message';
-            }, 4000);
-        }
-    } catch (error) {
-        console.log('Message error:', error);
+        setTimeout(function() {
+            if (scanning) stopScanning();
+        }, 1500);
+    } else {
+        showMsg('⚠️ Product not found', 'error');
     }
 }
 
-// ====== CART FUNCTIONS ======
-function addToCart(productId) {
-    try {
-        if (!PRODUCTS[productId]) return;
-
-        cart.push({
-            id: productId,
-            product: PRODUCTS[productId],
-            quantity: 1
-        });
-
-        saveCartToStorage();
-        updateCartDisplay();
-        openCart();
-    } catch (error) {
-        console.log('Add cart error:', error);
-        showScanMessage('❌ Error adding to cart', 'error');
+// Show message
+function showMsg(msg, type) {
+    var el = getEl('scanMessage');
+    if (!el) return;
+    
+    el.textContent = msg;
+    el.className = 'scan-message ' + (type || '');
+    
+    if (type === 'success' || type === 'error') {
+        setTimeout(function() {
+            el.textContent = '';
+            el.className = 'scan-message';
+        }, 4000);
     }
 }
 
-function removeFromCart(index) {
-    try {
-        cart.splice(index, 1);
-        saveCartToStorage();
-        updateCartDisplay();
-    } catch (error) {
-        console.log('Remove error:', error);
-    }
+// Add to cart
+function addToCart(pid) {
+    if (!PRODUCTS[pid]) return;
+
+    cart.push({
+        id: pid,
+        product: PRODUCTS[pid],
+        quantity: 1
+    });
+
+    saveCart();
+    updateCart();
+    openCart();
 }
 
+// Remove from cart
+function removeFromCart(idx) {
+    cart.splice(idx, 1);
+    saveCart();
+    updateCart();
+}
+
+// Open cart
 function openCart() {
-    try {
-        const sidebar = safeGetElement('cartSidebar');
-        const overlay = safeGetElement('overlay');
-        if (sidebar) sidebar.classList.add('active');
-        if (overlay) overlay.classList.add('active');
-    } catch (error) {
-        console.log('Open cart error:', error);
-    }
+    var sidebar = getEl('cartSidebar');
+    var overlay = getEl('overlay');
+    if (sidebar) sidebar.classList.add('active');
+    if (overlay) overlay.classList.add('active');
 }
 
+// Close cart
 function closeCart() {
-    try {
-        const sidebar = safeGetElement('cartSidebar');
-        const overlay = safeGetElement('overlay');
-        if (sidebar) sidebar.classList.remove('active');
-        if (overlay) overlay.classList.remove('active');
-    } catch (error) {
-        console.log('Close cart error:', error);
-    }
+    var sidebar = getEl('cartSidebar');
+    var overlay = getEl('overlay');
+    if (sidebar) sidebar.classList.remove('active');
+    if (overlay) overlay.classList.remove('active');
 }
 
-function updateCartDisplay() {
-    try {
-        const cartItems = safeGetElement('cartItems');
-        const cartCount = safeGetElement('cartCount');
+// Update cart display
+function updateCart() {
+    var cartItems = getEl('cartItems');
+    var cartCount = getEl('cartCount');
 
-        if (!cartItems || !cartCount) return;
+    if (!cartItems || !cartCount) return;
 
-        if (cart.length === 0) {
-            cartItems.innerHTML = '<div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>Your cart is empty</p></div>';
-            cartCount.textContent = '0';
-            return;
-        }
-
-        cartItems.innerHTML = '';
-        for (let i = 0; i < cart.length; i++) {
-            const item = cart[i];
-            const itemEl = document.createElement('div');
-            itemEl.className = 'cart-item';
-            itemEl.innerHTML = '<div class="cart-item-info"><div class="cart-item-name">' + item.product.name + 
-                '</div><div class="cart-item-price">$' + item.product.price.toFixed(2) + 
-                '</div></div><button class="cart-item-remove" type="button">Remove</button>';
-            
-            const removeBtn = itemEl.querySelector('.cart-item-remove');
-            removeBtn.onclick = (function(idx) {
-                return function() { removeFromCart(idx); };
-            })(i);
-            
-            cartItems.appendChild(itemEl);
-        }
-
-        cartCount.textContent = String(cart.length);
-        updateCartSummary();
-    } catch (error) {
-        console.log('Update display error:', error);
+    if (cart.length === 0) {
+        cartItems.innerHTML = '<div class="empty-cart"><div class="empty-cart-icon">🛒</div><p>Empty</p></div>';
+        cartCount.textContent = '0';
+        return;
     }
-}
 
-function updateCartSummary() {
-    try {
-        let subtotal = 0;
-        for (let i = 0; i < cart.length; i++) {
-            subtotal += cart[i].product.price;
-        }
+    cartItems.innerHTML = '';
+    for (var i = 0; i < cart.length; i++) {
+        var item = cart[i];
+        var div = document.createElement('div');
+        div.className = 'cart-item';
         
-        const tax = subtotal * 0.1;
-        const total = subtotal + tax;
-
-        const subtotalEl = safeGetElement('subtotal');
-        const taxEl = safeGetElement('tax');
-        const totalEl = safeGetElement('total');
-
-        if (subtotalEl) subtotalEl.textContent = '$' + subtotal.toFixed(2);
-        if (taxEl) taxEl.textContent = '$' + tax.toFixed(2);
-        if (totalEl) totalEl.textContent = '$' + total.toFixed(2);
-    } catch (error) {
-        console.log('Summary error:', error);
+        var html = '<div class="cart-item-info">';
+        html += '<div class="cart-item-name">' + item.product.name + '</div>';
+        html += '<div class="cart-item-price">$' + item.product.price.toFixed(2) + '</div>';
+        html += '</div>';
+        html += '<button class="cart-item-remove" type="button">Remove</button>';
+        
+        div.innerHTML = html;
+        
+        var removeBtn = div.querySelector('.cart-item-remove');
+        removeBtn.itemIndex = i;
+        removeBtn.onclick = function() { removeFromCart(this.itemIndex); };
+        
+        cartItems.appendChild(div);
     }
+
+    cartCount.textContent = String(cart.length);
+    updateSummary();
 }
 
-// ====== CHECKOUT FUNCTIONS ======
+// Update summary
+function updateSummary() {
+    var sub = 0;
+    for (var i = 0; i < cart.length; i++) {
+        sub += cart[i].product.price;
+    }
+    
+    var tax = sub * 0.1;
+    var total = sub + tax;
+
+    var subEl = getEl('subtotal');
+    var taxEl = getEl('tax');
+    var totEl = getEl('total');
+
+    if (subEl) subEl.textContent = '$' + sub.toFixed(2);
+    if (taxEl) taxEl.textContent = '$' + tax.toFixed(2);
+    if (totEl) totEl.textContent = '$' + total.toFixed(2);
+}
+
+// Open checkout
 function openCheckout() {
-    try {
-        if (cart.length === 0) {
-            showScanMessage('⚠️ Add items to cart first', 'error');
-            return;
-        }
-
-        let subtotal = 0;
-        for (let i = 0; i < cart.length; i++) {
-            subtotal += cart[i].product.price;
-        }
-        const tax = subtotal * 0.1;
-        const total = subtotal + tax;
-
-        let summaryHTML = '<div class="order-details">';
-        for (let i = 0; i < cart.length; i++) {
-            summaryHTML += '<div class="order-details-row"><span>' + cart[i].product.name + 
-                '</span><span>$' + cart[i].product.price.toFixed(2) + '</span></div>';
-        }
-        summaryHTML += '<div class="order-details-row" style="border-top: 1px solid #bbb; padding-top: 10px;">' +
-            '<strong>Subtotal:</strong><strong>$' + subtotal.toFixed(2) + '</strong></div>' +
-            '<div class="order-details-row"><strong>Tax (10%):</strong><strong>$' + tax.toFixed(2) + '</strong></div>' +
-            '<div class="order-details-row" style="font-size: 1.2em; color: #667eea;"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div></div>';
-
-        const summaryEl = safeGetElement('checkoutSummary');
-        if (summaryEl) summaryEl.innerHTML = summaryHTML;
-
-        closeCart();
-        const modal = safeGetElement('checkoutModal');
-        if (modal) modal.classList.add('active');
-    } catch (error) {
-        console.log('Open checkout error:', error);
-        showScanMessage('❌ Error opening checkout', 'error');
+    if (cart.length === 0) {
+        showMsg('⚠️ Add items first', 'error');
+        return;
     }
+
+    var sub = 0;
+    for (var i = 0; i < cart.length; i++) {
+        sub += cart[i].product.price;
+    }
+    var tax = sub * 0.1;
+    var total = sub + tax;
+
+    var html = '<div class="order-details">';
+    for (var i = 0; i < cart.length; i++) {
+        html += '<div class="order-details-row">';
+        html += '<span>' + cart[i].product.name + '</span>';
+        html += '<span>$' + cart[i].product.price.toFixed(2) + '</span>';
+        html += '</div>';
+    }
+    html += '<div class="order-details-row" style="border-top: 1px solid #bbb; padding-top: 10px;">';
+    html += '<strong>Subtotal:</strong><strong>$' + sub.toFixed(2) + '</strong></div>';
+    html += '<div class="order-details-row">';
+    html += '<strong>Tax (10%):</strong><strong>$' + tax.toFixed(2) + '</strong></div>';
+    html += '<div class="order-details-row" style="font-size: 1.2em; color: #667eea;">';
+    html += '<strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div></div>';
+
+    var summaryEl = getEl('checkoutSummary');
+    if (summaryEl) summaryEl.innerHTML = html;
+
+    closeCart();
+    var modal = getEl('checkoutModal');
+    if (modal) modal.classList.add('active');
 }
 
+// Close checkout modal
 function closeCheckoutModal() {
-    try {
-        const modal = safeGetElement('checkoutModal');
-        if (modal) modal.classList.remove('active');
-    } catch (error) {
-        console.log('Close checkout error:', error);
-    }
+    var modal = getEl('checkoutModal');
+    if (modal) modal.classList.remove('active');
 }
 
+// Process checkout
 function processCheckout(e) {
-    try {
-        e.preventDefault();
+    e.preventDefault();
 
-        const fullName = safeGetElement('fullName');
-        const email = safeGetElement('email');
-        const cardNumber = safeGetElement('cardNumber');
+    var nameEl = getEl('fullName');
+    var emailEl = getEl('email');
+    var cardEl = getEl('cardNumber');
 
-        if (!fullName || !fullName.value || !email || !email.value || !cardNumber || !cardNumber.value) {
-            alert('❌ Please fill all fields');
-            return;
-        }
-
-        const orderNumber = 'ORD-' + Math.random().toString(36).substr(2, 8).toUpperCase();
-        
-        let subtotal = 0;
-        for (let i = 0; i < cart.length; i++) {
-            subtotal += cart[i].product.price;
-        }
-        const tax = subtotal * 0.1;
-        const total = subtotal + tax;
-
-        const successMsg = safeGetElement('successMessage');
-        if (successMsg) {
-            successMsg.textContent = '✅ Order #' + orderNumber + ' placed! Email: ' + email.value;
-        }
-
-        let orderHTML = '<div class="order-details">' +
-            '<div class="order-details-row"><strong>Order:</strong><strong>' + orderNumber + '</strong></div>' +
-            '<div class="order-details-row"><strong>Items:</strong><span>' + cart.length + '</span></div>' +
-            '<div class="order-details-row"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div>' +
-            '<div class="order-details-row"><strong>Ship To:</strong><span>' + fullName.value + '</span></div>' +
-            '<div class="order-details-row"><strong>Delivery:</strong><span>3-5 Days</span></div></div>';
-
-        const orderDetails = safeGetElement('orderDetails');
-        if (orderDetails) orderDetails.innerHTML = orderHTML;
-
-        closeCheckoutModal();
-        const successModal = safeGetElement('successModal');
-        if (successModal) successModal.classList.add('active');
-
-        cart = [];
-        saveCartToStorage();
-        updateCartDisplay();
-    } catch (error) {
-        console.log('Checkout error:', error);
-        alert('❌ Error processing order');
+    if (!nameEl || !nameEl.value || !emailEl || !emailEl.value || !cardEl || !cardEl.value) {
+        alert('Fill all fields');
+        return;
     }
+
+    var orderNum = 'ORD-' + Math.random().toString(36).substr(2, 8).toUpperCase();
+    
+    var sub = 0;
+    for (var i = 0; i < cart.length; i++) {
+        sub += cart[i].product.price;
+    }
+    var tax = sub * 0.1;
+    var total = sub + tax;
+
+    var msgEl = getEl('successMessage');
+    if (msgEl) {
+        msgEl.textContent = '✅ Order #' + orderNum + ' confirmed! Email sent to ' + emailEl.value;
+    }
+
+    var detailsEl = getEl('orderDetails');
+    if (detailsEl) {
+        var html = '<div class="order-details">';
+        html += '<div class="order-details-row"><strong>Order:</strong><strong>' + orderNum + '</strong></div>';
+        html += '<div class="order-details-row"><strong>Items:</strong><span>' + cart.length + '</span></div>';
+        html += '<div class="order-details-row"><strong>Total:</strong><strong>$' + total.toFixed(2) + '</strong></div>';
+        html += '<div class="order-details-row"><strong>Ship To:</strong><span>' + nameEl.value + '</span></div>';
+        html += '<div class="order-details-row"><strong>Delivery:</strong><span>3-5 Business Days</span></div>';
+        html += '</div>';
+        detailsEl.innerHTML = html;
+    }
+
+    closeCheckoutModal();
+    var successModal = getEl('successModal');
+    if (successModal) successModal.classList.add('active');
+
+    cart = [];
+    saveCart();
+    updateCart();
 }
 
+// Close success modal
 function closeSuccessModal() {
-    try {
-        const modal = safeGetElement('successModal');
-        if (modal) modal.classList.remove('active');
-        loadProducts();
-    } catch (error) {
-        console.log('Close success error:', error);
-    }
+    var modal = getEl('successModal');
+    if (modal) modal.classList.remove('active');
+    loadProducts();
 }
 
-// ====== STORAGE ======
-function saveCartToStorage() {
+// Save cart
+function saveCart() {
     try {
         localStorage.setItem('clockShopCart', JSON.stringify(cart));
-    } catch (error) {
-        console.log('Save error:', error);
+    } catch (e) {
+        console.log('Save error:', e);
     }
 }
 
-function loadCartFromStorage() {
+// Load cart
+function loadCart() {
     try {
-        const saved = localStorage.getItem('clockShopCart');
+        var saved = localStorage.getItem('clockShopCart');
         if (saved) {
             cart = JSON.parse(saved);
-            updateCartDisplay();
+            updateCart();
         }
-    } catch (error) {
-        console.log('Load error:', error);
+    } catch (e) {
+        console.log('Load error:', e);
         cart = [];
     }
 }
